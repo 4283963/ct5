@@ -78,6 +78,14 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="20" v-if="comparisonData && filterForm.selectedVoyages.length >= 2">
+      <el-col :span="24">
+        <el-card class="chart-card">
+          <LineChart :option="efficiencyComparisonChartOption" height="350px" />
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-row :gutter="20" v-if="selectedVoyageId">
       <el-col :span="12">
         <el-card class="chart-card">
@@ -322,6 +330,50 @@ const windImpactChartOption = computed(() => {
       { name: '平均航速 (节)', data: speedData }
     ],
     ['#f56c6c', '#409eff']
+  )
+})
+
+const efficiencyComparisonChartOption = computed(() => {
+  if (!comparisonData.value?.summary) {
+    return createBarChartOption('', [], [])
+  }
+
+  const summary = comparisonData.value.summary
+  const voyageIds = filterForm.value.selectedVoyages
+
+  const categories = voyageIds.map(voyageId => {
+    const voyage = voyageStore.voyages.find(v => v.voyage_id === voyageId)
+    return voyage ? voyage.vessel_name : voyageId
+  })
+
+  const metricLabels = {
+    speed: { name: '平均航速', unit: '节' },
+    fuel: { name: '平均油耗', unit: '吨/时' },
+    efficiency: { name: '平均效率', unit: 'kg/海里' }
+  }
+
+  const seriesData = []
+  const colors = ['#409eff', '#f56c6c', '#67c23a', '#e6a23c']
+
+  Object.keys(metricLabels).forEach((metric, index) => {
+    if (summary[metric]) {
+      const data = voyageIds.map(voyageId => {
+        const key = `${voyageId}_mean`
+        const value = summary[metric][key]
+        return value !== undefined ? Number(value.toFixed(2)) : 0
+      })
+      seriesData.push({
+        name: `${metricLabels[metric].name} (${metricLabels[metric].unit})`,
+        data: data
+      })
+    }
+  })
+
+  return createBarChartOption(
+    '多航次能效指标对比',
+    categories,
+    seriesData,
+    colors
   )
 })
 
