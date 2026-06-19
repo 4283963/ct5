@@ -37,3 +37,11 @@ export const getRollingEfficiency = (voyageId, window = 10) => {
     params: { window }
   })
 }
+
+export const getFuelTypes = () => {
+  return api.get('/metrics/carbon/fuel-types')
+}
+
+export const predictCarbonEmission = (data) => {
+  return api.post('/metrics/carbon/predict', data)
+}

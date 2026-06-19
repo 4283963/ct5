@@ -7,6 +7,9 @@ from app.models.schemas import (
     VoyageListResponse,
     MetricsComparisonRequest,
     MetricsComparisonResponse,
+    CarbonEmissionRequest,
+    CarbonEmissionResponse,
+    FuelTypesResponse,
 )
 from app.services.data_processor import data_processor
 from app.services.metrics_calculator import metrics_calculator
@@ -175,5 +178,40 @@ async def get_voyage_trajectory(voyage_id: str):
         return {"voyage_id": voyage_id, "trajectory": trajectory}
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/carbon/fuel-types", response_model=FuelTypesResponse)
+async def get_fuel_types():
+    try:
+        return metrics_calculator.get_available_fuel_types()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/carbon/predict", response_model=CarbonEmissionResponse)
+async def predict_carbon_emission(request: CarbonEmissionRequest):
+    try:
+        reference_df = None
+        if request.reference_voyage_id:
+            reference_df = data_processor.get_voyage_data("", request.reference_voyage_id)
+            if reference_df is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Reference voyage {request.reference_voyage_id} not found"
+                )
+
+        result = metrics_calculator.calculate_carbon_emission(
+            distance=request.distance,
+            avg_speed=request.avg_speed,
+            fuel_type=request.fuel_type,
+            reference_df=reference_df,
+        )
+        return result
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

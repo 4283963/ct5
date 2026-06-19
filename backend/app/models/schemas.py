@@ -136,3 +136,38 @@ class FileInfo(BaseModel):
 class VoyageListResponse(BaseModel):
     total: int
     voyages: List[VoyageSummary]
+
+
+class FuelTypeInfo(BaseModel):
+    code: str
+    name: str
+    carbon_factor: float
+    density: float
+    sulfur_content: float
+
+
+class CarbonEmissionRequest(BaseModel):
+    distance: float = Field(gt=0, description="航行里程，单位：海里")
+    avg_speed: float = Field(gt=0, le=50, description="平均航速，单位：节")
+    fuel_type: str = Field(description="燃油类型代码，如 HFO, MGO, LNG, VLSFO")
+    reference_voyage_id: Optional[str] = Field(None, description="参考航次ID，用于获取历史能效系数")
+
+
+class CarbonEmissionResponse(BaseModel):
+    total_carbon_emission: float
+    total_fuel_consumption: float
+    fuel_type: str
+    fuel_type_name: str
+    distance: float
+    avg_speed: float
+    duration_hours: float
+    efficiency_coefficient: float
+    carbon_factor: float
+    sulfur_emission: float
+    emission_breakdown: Dict[str, float]
+    efficiency_level: str
+    recommendations: List[str]
+
+
+class FuelTypesResponse(BaseModel):
+    fuel_types: List[FuelTypeInfo]

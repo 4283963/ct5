@@ -10,6 +10,9 @@ from app.models.schemas import (
     MetricDataPoint,
     VoyageMetrics,
     MetricsComparisonResponse,
+    CarbonEmissionResponse,
+    FuelTypeInfo,
+    FuelTypesResponse,
 )
 
 
@@ -279,6 +282,154 @@ class MetricsCalculator:
             "speed_bins": speed_bins.tolist(),
             "efficiency_by_speed": efficiency_by_bin,
         }
+
+    def get_available_fuel_types(self) -> FuelTypesResponse:
+        fuel_types = []
+        for code, info in settings.FUEL_TYPES.items():
+            fuel_types.append(
+                FuelTypeInfo(
+                    code=code,
+                    name=info["name"],
+                    carbon_factor=info["carbon_factor"],
+                    density=info["density"],
+                    sulfur_content=info["sulfur_content"],
+                )
+            )
+        return FuelTypesResponse(fuel_types=fuel_types)
+
+    def calculate_carbon_emission(
+        self,
+        distance: float,
+        avg_speed: float,
+        fuel_type: str,
+        reference_df: Optional[pd.DataFrame] = None,
+    ) -> CarbonEmissionResponse:
+        if fuel_type not in settings.FUEL_TYPES:
+            raise ValueError(f"Unknown fuel type: {fuel_type}")
+
+        fuel_info = settings.FUEL_TYPES[fuel_type]
+        carbon_factor = fuel_info["carbon_factor"]
+        sulfur_content = fuel_info["sulfur_content"]
+
+        if reference_df is not None and len(reference_df) > 0:
+            total_distance_ref = self._calculate_total_distance(reference_df)
+            total_fuel_ref = reference_df["fuel_consumption"].sum()
+            if total_distance_ref > 0 and total_fuel_ref > 0:
+                efficiency_coeff = total_distance_ref / total_fuel_ref
+            else:
+                efficiency_coeff = settings.DEFAULT_FUEL_CONSUMPTION_RATE
+        else:
+            efficiency_coeff = settings.DEFAULT_FUEL_CONSUMPTION_RATE
+
+        efficiency_coeff = max(1.0, efficiency_coeff)
+        total_fuel_consumption = distance / efficiency_coeff
+        total_fuel_consumption = max(0.0, total_fuel_consumption)
+
+        base_carbon = total_fuel_consumption * carbon_factor
+        speed_penalty = self._calculate_speed_penalty(avg_speed)
+        total_carbon_emission = base_carbon * (1 + speed_penalty)
+
+        sulfur_emission = total_fuel_consumption * sulfur_content
+
+        duration_hours = distance / avg_speed if avg_speed > 0 else 0
+
+        if efficiency_coeff >= 200:
+            efficiency_level = "excellent"
+        elif efficiency_coeff >= 100:
+            efficiency_level = "good"
+        elif efficiency_coeff >= 50:
+            efficiency_level = "fair"
+        else:
+            efficiency_level = "poor"
+
+        recommendations = self._generate_emission_recommendations(
+            efficiency_coeff, avg_speed, fuel_type, total_carbon_emission
+        )
+
+        emission_breakdown = {
+            "base_carbon": round(base_carbon, 2),
+            "speed_penalty_carbon": round(total_carbon_emission - base_carbon, 2),
+            "co2_equivalent": round(total_carbon_emission * 3.664, 2),
+            "trees_needed": round(total_carbon_emission / 21.77, 1),
+            "cars_equivalent": round(total_carbon_emission / 4.6, 1),
+        }
+
+        return CarbonEmissionResponse(
+            total_carbon_emission=round(total_carbon_emission, 2),
+            total_fuel_consumption=round(total_fuel_consumption, 2),
+            fuel_type=fuel_type,
+            fuel_type_name=fuel_info["name"],
+            distance=round(distance, 2),
+            avg_speed=round(avg_speed, 2),
+            duration_hours=round(duration_hours, 2),
+            efficiency_coefficient=round(efficiency_coeff, 2),
+            carbon_factor=carbon_factor,
+            sulfur_emission=round(sulfur_emission, 4),
+            emission_breakdown=emission_breakdown,
+            efficiency_level=efficiency_level,
+            recommendations=recommendations,
+        )
+
+    def _calculate_total_distance(self, df: pd.DataFrame) -> float:
+        distances = self._calculate_segment_distances(df)
+        return float(np.sum(distances)) if len(distances) > 0 else 0.0
+
+    def _calculate_speed_penalty(self, avg_speed: float) -> float:
+        opt_low, opt_high = settings.SPEED_OPTIMAL_RANGE
+        if avg_speed < opt_low:
+            return (opt_low - avg_speed) * 0.01
+        elif avg_speed > opt_high:
+            return (avg_speed - opt_high) * 0.03
+        return 0.0
+
+    def _generate_emission_recommendations(
+        self,
+        efficiency_coeff: float,
+        avg_speed: float,
+        fuel_type: str,
+        total_carbon: float,
+    ) -> List[str]:
+        recommendations = []
+
+        opt_low, opt_high = settings.SPEED_OPTIMAL_RANGE
+        if avg_speed > opt_high:
+            recommendations.append(
+                f"当前航速 {avg_speed:.1f} 节高于最优区间 ({opt_low}-{opt_high} 节)，"
+                f"建议减速至经济航速以降低碳排放"
+            )
+        elif avg_speed < opt_low:
+            recommendations.append(
+                f"当前航速 {avg_speed:.1f} 节较低，可适当调整航速以平衡时效与燃油效率"
+            )
+        else:
+            recommendations.append(
+                f"当前航速 {avg_speed:.1f} 节处于最优区间，保持该航速可获得最佳能效"
+            )
+
+        if fuel_type in ["HFO"]:
+            recommendations.append(
+                "当前使用重油，碳排放较高，建议考虑切换至低硫燃油(VLSFO)或LNG以减少排放"
+            )
+        elif fuel_type == "LNG":
+            recommendations.append(
+                "当前使用LNG作为燃料，碳排放已处于较低水平，符合环保趋势"
+            )
+
+        if efficiency_coeff < 50:
+            recommendations.append(
+                "能效系数偏低，建议参考历史高效航次的运营参数进行优化调整"
+            )
+        elif efficiency_coeff >= 200:
+            recommendations.append(
+                "能效系数优秀，当前运营模式可作为标准参考"
+            )
+
+        if total_carbon > 50:
+            recommendations.append(
+                "预计碳排放量较大，建议通过气象导航优化航线以进一步降低排放"
+            )
+
+        return recommendations
 
 
 metrics_calculator = MetricsCalculator()

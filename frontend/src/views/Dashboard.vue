@@ -86,6 +86,156 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="20">
+      <el-col :span="8">
+        <el-card class="carbon-card">
+          <template #header>
+            <div class="card-header">
+              <el-icon :size="20" color="#67c23a"><DataLine /></el-icon>
+              <span class="card-header-title">碳排放模拟计算</span>
+            </div>
+          </template>
+          <el-form :model="carbonForm" label-width="100px" size="default">
+            <el-form-item label="航行里程">
+              <el-input-number
+                v-model="carbonForm.distance"
+                :min="1"
+                :max="100000"
+                :step="100"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <span class="unit-label">海里</span>
+            </el-form-item>
+            <el-form-item label="平均航速">
+              <el-input-number
+                v-model="carbonForm.avgSpeed"
+                :min="1"
+                :max="50"
+                :step="0.5"
+                :precision="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <span class="unit-label">节</span>
+            </el-form-item>
+            <el-form-item label="燃油类型">
+              <el-select v-model="carbonForm.fuelType" style="width: 100%">
+                <el-option
+                  v-for="fuel in fuelTypes"
+                  :key="fuel.code"
+                  :label="fuel.name"
+                  :value="fuel.code"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="参考航次">
+              <el-select
+                v-model="carbonForm.referenceVoyageId"
+                placeholder="可选：基于历史能效系数计算"
+                clearable
+                style="width: 100%"
+              >
+                <el-option
+                  v-for="voyage in voyageStore.voyageOptions"
+                  :key="voyage.value"
+                  :label="voyage.label"
+                  :value="voyage.value"
+                />
+              </el-select>
+            </el-form-item>
+            <el-form-item>
+              <el-button
+                type="success"
+                :loading="carbonLoading"
+                @click="calculateCarbonEmission"
+                style="width: 60%"
+              >
+                <el-icon><Coin /></el-icon>
+                计算碳排放
+              </el-button>
+              <el-button @click="resetCarbonForm">
+                重置
+              </el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </el-col>
+      <el-col :span="16">
+        <el-card class="carbon-result-card">
+          <template #header>
+            <div class="card-header">
+              <el-icon :size="20" color="#f56c6c"><Warning /></el-icon>
+              <span class="card-header-title">碳排放预测结果</span>
+              <el-tag
+                v-if="carbonResult"
+                :class="efficiencyLevelClass"
+                size="small"
+                style="margin-left: auto"
+              >
+                能效等级: {{ efficiencyLevelText }}
+              </el-tag>
+            </div>
+          </template>
+          <el-row :gutter="16">
+            <el-col :span="10">
+              <div class="gauge-container">
+                <LineChart :option="carbonGaugeOption" height="300px" />
+              </div>
+            </el-col>
+            <el-col :span="14" v-if="carbonResult">
+              <el-descriptions :column="2" border size="small" class="carbon-desc">
+                <el-descriptions-item label="预计总油耗">
+                  <span class="result-value">{{ carbonResult.total_fuel_consumption.toFixed(2) }} 吨</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="燃油类型">
+                  {{ carbonResult.fuel_type_name }}
+                </el-descriptions-item>
+                <el-descriptions-item label="航行时间">
+                  {{ carbonResult.duration_hours.toFixed(1) }} 小时
+                </el-descriptions-item>
+                <el-descriptions-item label="能效系数">
+                  <span class="result-value">{{ carbonResult.efficiency_coefficient.toFixed(2) }}</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="CO₂ 当量">
+                  <span class="result-value co2-value">{{ carbonResult.emission_breakdown.co2_equivalent.toFixed(2) }} 吨</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="硫排放">
+                  {{ carbonResult.sulfur_emission.toFixed(4) }} 吨
+                </el-descriptions-item>
+              </el-descriptions>
+              <el-divider content-position="left">排放影响参考</el-divider>
+              <div class="impact-list">
+                <div class="impact-item">
+                  <el-icon :size="18" color="#67c23a"><CircleCheck /></el-icon>
+                  需约 <strong>{{ carbonResult.emission_breakdown.trees_needed.toFixed(0) }}</strong> 棵树一年吸收
+                </div>
+                <div class="impact-item">
+                  <el-icon :size="18" color="#e6a23c"><Warning /></el-icon>
+                  相当于 <strong>{{ carbonResult.emission_breakdown.cars_equivalent.toFixed(1) }}</strong> 辆轿车一年排放量
+                </div>
+              </div>
+            </el-col>
+            <el-col :span="14" v-else>
+              <el-empty description="输入参数后点击计算查看碳排放预测" :image-size="80" />
+            </el-col>
+          </el-row>
+          <el-divider v-if="carbonResult" content-position="left">优化建议</el-divider>
+          <div v-if="carbonResult" class="recommendations">
+            <el-alert
+              v-for="(rec, idx) in carbonResult.recommendations"
+              :key="idx"
+              :title="rec"
+              type="info"
+              :closable="false"
+              show-icon
+              class="recommendation-item"
+            />
+          </div>
+        </el-card>
+      </el-col>
+    </el-row>
+
     <el-row :gutter="20" v-if="selectedVoyageId">
       <el-col :span="12">
         <el-card class="chart-card">
@@ -188,12 +338,15 @@ import {
   getRollingEfficiency,
   getSpeedFuelCorrelation,
   getWindImpact,
-  getOptimalSpeed
+  getOptimalSpeed,
+  getFuelTypes,
+  predictCarbonEmission
 } from '@/api/metrics'
 import {
   createLineChartOption,
   createScatterChartOption,
-  createBarChartOption
+  createBarChartOption,
+  createCarbonGaugeOption
 } from '@/utils/chartOptions'
 
 const router = useRouter()
@@ -206,6 +359,17 @@ const rollingEfficiencyData = ref(null)
 const speedFuelData = ref(null)
 const windImpactData = ref(null)
 const optimalSpeedData = ref(null)
+
+const fuelTypes = ref([])
+const carbonLoading = ref(false)
+const carbonResult = ref(null)
+
+const carbonForm = ref({
+  distance: 5000,
+  avgSpeed: 15,
+  fuelType: 'HFO',
+  referenceVoyageId: ''
+})
 
 const filterForm = ref({
   selectedVoyages: [],
@@ -423,6 +587,43 @@ const windImpactInterpretation = computed(() => {
   return '风向影响在可接受范围内'
 })
 
+const carbonGaugeMax = computed(() => {
+  if (!carbonResult.value) return 100
+  const emission = carbonResult.value.total_carbon_emission
+  return Math.max(100, Math.ceil(emission * 1.5 / 10) * 10)
+})
+
+const carbonGaugeOption = computed(() => {
+  if (!carbonResult.value) {
+    return createCarbonGaugeOption(0, 100, '吨 CO₂')
+  }
+  return createCarbonGaugeOption(
+    carbonResult.value.total_carbon_emission,
+    carbonGaugeMax.value,
+    '吨 CO₂'
+  )
+})
+
+const efficiencyLevelText = computed(() => {
+  const levelMap = {
+    excellent: '优秀',
+    good: '良好',
+    fair: '一般',
+    poor: '较差'
+  }
+  return levelMap[carbonResult.value?.efficiency_level] || '-'
+})
+
+const efficiencyLevelClass = computed(() => {
+  const classMap = {
+    excellent: 'level-excellent',
+    good: 'level-good',
+    fair: 'level-fair',
+    poor: 'level-poor'
+  }
+  return classMap[carbonResult.value?.efficiency_level] || ''
+})
+
 const onVoyageSelectionChange = () => {
 }
 
@@ -489,8 +690,58 @@ const goToUpload = () => {
   router.push('/upload')
 }
 
+const loadFuelTypes = async () => {
+  try {
+    const data = await getFuelTypes()
+    fuelTypes.value = data.fuel_types || []
+  } catch (error) {
+    console.error('Failed to load fuel types:', error)
+  }
+}
+
+const calculateCarbonEmission = async () => {
+  if (!carbonForm.value.distance || carbonForm.value.distance <= 0) {
+    ElMessage.warning('请输入有效的航行里程')
+    return
+  }
+  if (!carbonForm.value.avgSpeed || carbonForm.value.avgSpeed <= 0) {
+    ElMessage.warning('请输入有效的平均航速')
+    return
+  }
+
+  carbonLoading.value = true
+  try {
+    const payload = {
+      distance: Number(carbonForm.value.distance),
+      avg_speed: Number(carbonForm.value.avgSpeed),
+      fuel_type: carbonForm.value.fuelType
+    }
+    if (carbonForm.value.referenceVoyageId) {
+      payload.reference_voyage_id = carbonForm.value.referenceVoyageId
+    }
+    carbonResult.value = await predictCarbonEmission(payload)
+    ElMessage.success('碳排放计算完成')
+  } catch (error) {
+    console.error('Failed to calculate carbon emission:', error)
+    ElMessage.error('碳排放计算失败')
+  } finally {
+    carbonLoading.value = false
+  }
+}
+
+const resetCarbonForm = () => {
+  carbonForm.value = {
+    distance: 5000,
+    avgSpeed: 15,
+    fuelType: 'HFO',
+    referenceVoyageId: ''
+  }
+  carbonResult.value = null
+}
+
 onMounted(() => {
   voyageStore.fetchVoyages()
+  loadFuelTypes()
 })
 </script>
 
@@ -581,5 +832,97 @@ onMounted(() => {
   font-size: 12px;
   color: #606266;
   line-height: 1.5;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-header-title {
+  font-weight: 600;
+  color: #303133;
+}
+
+.unit-label {
+  margin-left: 8px;
+  font-size: 13px;
+  color: #909399;
+}
+
+.carbon-card,
+.carbon-result-card {
+  margin-bottom: 20px;
+}
+
+.carbon-card :deep(.el-form-item) {
+  margin-bottom: 18px;
+}
+
+.gauge-container {
+  padding: 10px 0;
+}
+
+.carbon-desc {
+  margin-top: 10px;
+}
+
+.result-value {
+  font-weight: 600;
+  color: #409eff;
+}
+
+.co2-value {
+  color: #f56c6c;
+}
+
+.impact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.impact-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #606266;
+}
+
+.recommendations {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recommendation-item {
+  margin: 0;
+}
+
+.level-excellent {
+  background-color: #f0f9eb;
+  border-color: #c2e7b0;
+  color: #67c23a;
+}
+
+.level-good {
+  background-color: #ecf5ff;
+  border-color: #b3d8ff;
+  color: #409eff;
+}
+
+.level-fair {
+  background-color: #fdf6ec;
+  border-color: #f5dab1;
+  color: #e6a23c;
+}
+
+.level-poor {
+  background-color: #fef0f0;
+  border-color: #fbc4c4;
+  color: #f56c6c;
 }
 </style>

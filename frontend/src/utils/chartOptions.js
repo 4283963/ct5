@@ -395,3 +395,102 @@ export const createRadarChartOption = (title, indicators, data) => {
     ]
   }
 }
+
+export const createCarbonGaugeOption = (value, max = 100, unit = '吨 CO₂') => {
+  const ratio = Math.min(value / max, 1)
+  let color
+  if (ratio <= 0.3) color = '#67c23a'
+  else if (ratio <= 0.5) color = '#409eff'
+  else if (ratio <= 0.7) color = '#e6a23c'
+  else color = '#f56c6c'
+
+  return {
+    series: [
+      {
+        type: 'gauge',
+        startAngle: 210,
+        endAngle: -30,
+        min: 0,
+        max: max,
+        radius: '90%',
+        center: ['50%', '58%'],
+        progress: {
+          show: true,
+          width: 18,
+          itemStyle: {
+            color: color
+          }
+        },
+        axisLine: {
+          lineStyle: {
+            width: 18,
+            color: [
+              [0.3, 'rgba(103, 194, 58, 0.25)'],
+              [0.5, 'rgba(64, 158, 255, 0.25)'],
+              [0.7, 'rgba(230, 162, 60, 0.25)'],
+              [1, 'rgba(245, 108, 108, 0.25)']
+            ]
+          }
+        },
+        pointer: {
+          show: true,
+          length: '65%',
+          width: 5,
+          itemStyle: {
+            color: color
+          }
+        },
+        axisTick: {
+          show: false
+        },
+        splitLine: {
+          length: 12,
+          lineStyle: {
+            color: '#999',
+            width: 1
+          }
+        },
+        axisLabel: {
+          color: '#999',
+          distance: 20,
+          fontSize: 10,
+          formatter: (val) => {
+            if (max > 100) {
+              return val >= 1000 ? (val / 1000).toFixed(1) + 'k' : val
+            }
+            return val
+          }
+        },
+        anchor: {
+          show: true,
+          size: 12,
+          itemStyle: {
+            borderWidth: 3,
+            borderColor: color,
+            color: '#fff'
+          }
+        },
+        title: {
+          offsetCenter: [0, '35%'],
+          fontSize: 13,
+          color: '#606266',
+          fontWeight: 'normal'
+        },
+        detail: {
+          valueAnimation: true,
+          fontSize: 28,
+          fontWeight: 'bold',
+          color: color,
+          offsetCenter: [0, '-5%'],
+          formatter: (val) => `${val.toFixed(2)}`
+        },
+        data: [
+          {
+            value: value,
+            name: unit
+          }
+        ]
+      }
+    ]
+  }
+}
